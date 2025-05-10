@@ -86,20 +86,22 @@ if __name__ == '__main__':
         )
         logger.info("Pretraining RecVAE for %d epochs (enc %d / dec %d)...",
                     args.vae_epochs, args.n_enc_epochs, args.n_dec_epochs)
-        recvae_trainer.pretrain(args.vae_epochs)
-
+        final_enc, final_dec = recvae_trainer.pretrain(args.vae_epochs)
+        logger.info("RecVAE pretraining complete. Final encoder loss=%.4f, decoder loss=%.4f",
+                    final_enc, final_dec)
         # 用預訓練好的 encoder 更新 KGCL 的使用者向量
         model.update_user_embeddings_from_recvae()
-        logger.info("RecVAE 預訓練完成，已更新 KGCL 的 user embeddings。")
+        logger.info("Pretraining of RecVAE complete; KGCL user embeddings have been updated.")
 
         # ─────────────────────────────────────
         # 第二階段：訓練 KGCL 部分（包括 CF 與 KG 損失）
         optimizer_kg = torch.optim.Adam(model.kgcl.parameters(), lr=args.lr)
         optimizer_vae = torch.optim.Adam(model.recvae.parameters(), lr=args.lr * 0.1)
+        optimizer_alpha = torch.optim.Adam([model.alpha], lr=args.lr)
 
         evaluator = Evaluator(args)
         test_interval = 1
-        early_stop_step = 10
+        early_stop_step = 5
         cur_best_pre_0 = 0
         cur_stopping_step = 0
 
@@ -129,9 +131,16 @@ if __name__ == '__main__':
                 # KGCL 內部產生 augmentation views
                 batch['aug_views'] = aug_views
                 batch_loss, batch_loss_dict = model(batch)
+                # 清 KGCL 和 RecVAE 的梯度
                 optimizer_kg.zero_grad()
+                optimizer_vae.zero_grad()
+                optimizer_alpha.zero_grad()
+                ## 反向傳播
                 batch_loss.backward()
+                ## 更新
                 optimizer_kg.step()
+                optimizer_vae.step()
+                optimizer_alpha.step()
                 for k, v in batch_loss_dict.items():
                     add_loss_dict[k] += v / len(train_cf)
                 s += args.batch_size
@@ -166,6 +175,7 @@ if __name__ == '__main__':
             if epoch % test_interval == 0 and epoch >= 0:
                 model.precompute_rec_scores()
                 model.kgcl.eval()
+                model.recvae.eval()
                 test_start = time()
                 with torch.no_grad():
                     ret = evaluator.test(model, user_dict, n_params)

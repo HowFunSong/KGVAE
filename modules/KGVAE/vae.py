@@ -91,6 +91,7 @@ class VAE(nn.Module):
             return eps * std + mu
         else:
             return mu
+
     # feed['users'] = pairs[:, 0]
     # feed['pos_items'] = pairs[:, 1]
     # feed['neg_items'] = pairs[:, 2]
@@ -121,17 +122,18 @@ class VAE(nn.Module):
     def update_prior(self):
         self.prior.encoder_old.load_state_dict(deepcopy(self.encoder.state_dict()))
 
+
 class RecVAETrainer:
     def __init__(
-        self,
-        recvae: VAE,
-        user_item_matrix: torch.Tensor,
-        lr: float,
-        n_enc_epochs: int,
-        n_dec_epochs: int,
-        beta=None,
-        gamma=1,
-        device="cpu",
+            self,
+            recvae: VAE,
+            user_item_matrix: torch.Tensor,
+            lr: float,
+            n_enc_epochs: int,
+            n_dec_epochs: int,
+            beta=None,
+            gamma=1,
+            device="cpu",
     ):
         """
         recvae:            你的 VAE 實例 (modules.KGVAE.kgvae.VAE)
@@ -196,7 +198,12 @@ class RecVAETrainer:
         return avg_enc, avg_dec
 
     def pretrain(self, epochs, dropout_rate=0.5):
+        assert epochs > 0, "Must pretrain for at least one epoch"
+
+        avg_enc, avg_dec = 0.0, 0.0
         for epoch in range(epochs):
             avg_enc, avg_dec = self.pretrain_epoch(dropout_rate=dropout_rate)
             print(f"[RecVAE 預訓練] Epoch {epoch + 1}/{epochs}  "
                   f"Encoder avg loss: {avg_enc:.4f}, Decoder avg loss: {avg_dec:.4f}")
+
+        return avg_enc, avg_dec

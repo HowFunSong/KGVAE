@@ -1,0 +1,37 @@
+PID: 20952
+Experiment Description: 
+########## Model HPs ##########
+tau: 0.2
+cl_weight: 0.1
+mu: 0.7
+########## Model Parameters ##########
+learning rate: 0.0010
+context_hops: 2
+node_dropout: 1
+node_dropout_rate: 0.5
+mess_dropout: 1
+mess_dropout_rate: 0.1
+all_embed: torch.Size([42296, 64])
+interact_mat: torch.Size([2625, 2625])
+edge_index: torch.Size([2, 332742])
+edge_type: torch.Size([332742])
+Pretraining RecVAE for 50 epochs (enc 3 / dec 1)...
+RecVAE 預訓練完成，已更新 KGCL 的 user embeddings。
+Starting KGCL training...
+Negative sampling time: 0.31s
+train_cf_triples shape: (65641, 3)
+forward() missing 1 required positional argument: 'dropout_rate'
+Traceback (most recent call last):
+  File "E:\Labs\KGVAE\run_kgvae.py", line 131, in <module>
+    batch_loss, batch_loss_dict = model(batch) ## 這裡就是調用KGVAE的forward?
+  File "C:\Users\User\anaconda3\envs\dev\lib\site-packages\torch\nn\modules\module.py", line 1553, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\User\anaconda3\envs\dev\lib\site-packages\torch\nn\modules\module.py", line 1562, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "E:\Labs\KGVAE\modules\KGVAE\kgvae.py", line 430, in forward
+    mu, logvar = self.recvae.encoder(self.user_item_matrix)
+  File "C:\Users\User\anaconda3\envs\dev\lib\site-packages\torch\nn\modules\module.py", line 1553, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\User\anaconda3\envs\dev\lib\site-packages\torch\nn\modules\module.py", line 1562, in _call_impl
+    return forward_call(*args, **kwargs)
+TypeError: forward() missing 1 required positional argument: 'dropout_rate'

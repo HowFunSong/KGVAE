@@ -40,7 +40,6 @@ def parse_args_kgvae():
     # parser.add_argument('--alpha'args_config.alpha)
     # ===== relation context ===== #
     parser.add_argument('--context_hops', type=int, default=2, help='number of context hops')
-
     parser.add_argument('--mu', type=float, default=0.7, help='mu')
     parser.add_argument('--tau', type=float, default=0.2, help='nu')
     parser.add_argument('--cl_weight', type=float, default=0.1, help='alpha')
@@ -48,6 +47,8 @@ def parse_args_kgvae():
         '--kg_ratio', type=float, default=1.0,
         help='Fraction of KG triples to use, range [0.1, 1.0]'
     )
+    # ===== union traine parameter ===== #
+    parser.add_argument( '--mix_weight', type=float, default=0.2, help='Weight of the mixed BPR loss during training, controlling its contribution to the overall loss (default: 0.2)')
     # ===== save model ===== #
     parser.add_argument("--save", action='store_true', default=False, help="save model or not")
     parser.add_argument("--out_dir", type=str, default="./weights/", help="output directory for model")

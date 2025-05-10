@@ -1,0 +1,32 @@
+PID: 13392
+Experiment Description: 
+########## Model HPs ##########
+tau: 0.2
+cl_weight: 0.1
+mu: 0.7
+########## Model Parameters ##########
+learning rate: 0.0010
+context_hops: 2
+node_dropout: 1
+node_dropout_rate: 0.5
+mess_dropout: 1
+mess_dropout_rate: 0.1
+all_embed: torch.Size([42296, 64])
+interact_mat: torch.Size([2625, 2625])
+edge_index: torch.Size([2, 332742])
+edge_type: torch.Size([332742])
+Pretraining RecVAE for 50 epochs (enc 3 / dec 1)...
+Pretraining of RecVAE complete; KGCL user embeddings have been updated.
+Starting KGCL training...
+Negative sampling time: 0.31s
+train_cf_triples shape: (65641, 3)
+Epoch 0000 | CF Time: 24.7s | KG Time: 12.7s | Mean KG Loss: 0.6880
+
++-------+---------+---------+--------------+--------------+--------------+--------------+
+| Epoch | CF Time | KG Time |    Recall    |     NDCG     |  Precision   |  Hit Ratio   |
++-------+---------+---------+--------------+--------------+--------------+--------------+
+|   0   |   24.7  |   12.7  | [0.15139827] | [0.25930214] | [0.21516437] | [0.80699894] |
++-------+---------+---------+--------------+--------------+--------------+--------------+
+### Found better model at epoch 0
+Negative sampling time: 0.33s
+train_cf_triples shape: (65641, 3)

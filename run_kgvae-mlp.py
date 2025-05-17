@@ -8,13 +8,14 @@ from collections import defaultdict
 from tqdm import tqdm
 from prettytable import PrettyTable
 from logging import getLogger
-from utils.parser import parse_args_kgvae
+from utils.parser import parse_args_kgvae_mlp
 from utils.data_loader import load_data
-from modules.KGVAE.kgvae import KGVAE
+from modules.KGVAE.kgvae_mlp import KGVAEMLP
 from utils.evaluator import Evaluator
 from utils.helper import early_stopping, init_logger
 from utils.sampler import UniformSampler
-from modules.KGVAE.kgvae import build_user_item_matrix
+from modules.KGVAE.kgvae_mlp import build_user_item_matrix
+
 from modules.KGVAE.vae import RecVAETrainer
 def neg_sampling(cf_pairs, train_user_dict):
     t1 = time()
@@ -26,13 +27,13 @@ def neg_sampling(cf_pairs, train_user_dict):
     return cf_triples
 
 def get_feed_dict(data, start, end):
-            feed = {}
-            pairs = torch.from_numpy(data[start:end]).to(device).long()
-            feed['users'] = pairs[:, 0]
-            feed['pos_items'] = pairs[:, 1]
-            feed['neg_items'] = pairs[:, 2]
-            feed['batch_start'] = start
-            return feed
+        feed = {}
+        pairs = torch.from_numpy(data[start:end]).to(device).long()
+        feed['users'] = pairs[:, 0]
+        feed['pos_items'] = pairs[:, 1]
+        feed['neg_items'] = pairs[:, 2]
+        feed['batch_start'] = start
+        return feed
 # ---------------------------
 # 主訓練流程：分為預訓練 RecVAE 和 KGCL 兩階段
 if __name__ == '__main__':
@@ -47,7 +48,7 @@ if __name__ == '__main__':
 
     from setproctitle import setproctitle
 
-    setproctitle('EXP@KGVAE')
+    setproctitle('EXP@KGVAE_MLP')
     sampling = UniformSampler(seed)
 
     device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
@@ -55,7 +56,7 @@ if __name__ == '__main__':
     logger = getLogger()
     try:
         # 讀取參數與初始化 logger
-        args = parse_args_kgvae()
+        args = parse_args_kgvae_mlp()
         device = torch.device("cuda:" + str(args.gpu_id)) if args.cuda else torch.device("cpu")
         log_fn = init_logger(args)
 
@@ -71,7 +72,7 @@ if __name__ == '__main__':
         user_item_matrix = build_user_item_matrix(train_cf, n_users, n_items, device)
 
         # 建立 KGVAE 模型
-        model = KGVAE(n_params, args, graph, adj_mat, user_item_matrix).to(device)
+        model = KGVAEMLP(n_params, args, graph, adj_mat, user_item_matrix).to(device)
         model.kgcl.print_shapes()
         model.print_hyper_parameters()
 
@@ -91,14 +92,15 @@ if __name__ == '__main__':
         logger.info("RecVAE pretraining complete. Final encoder loss=%.4f, decoder loss=%.4f",
                     final_enc, final_dec)
         # 用預訓練好的 encoder 更新 KGCL 的使用者向量
-        model.update_user_embeddings_from_recvae()
-        logger.info("Pretraining of RecVAE complete; KGCL user embeddings have been updated.")
-
+        # model.update_user_embeddings_from_recvae()
+        # logger.info("Pretraining of RecVAE complete; KGCL user embeddings have been updated.")
+        for p in model.recvae.parameters():
+            p.requires_grad_(False)
+        model.cache_user_latent()
         # ─────────────────────────────────────
         # 第二階段：訓練 KGCL 部分（包括 CF 與 KG 損失）
         optimizer_kg = torch.optim.Adam(model.kgcl.parameters(), lr=args.lr)
-        optimizer_vae = torch.optim.Adam(model.recvae.parameters(), lr=args.lr * 0.1)
-        optimizer_alpha = torch.optim.Adam([model.alpha], lr=args.lr)
+
 
         evaluator = Evaluator(args)
         test_interval = 1
@@ -118,8 +120,7 @@ if __name__ == '__main__':
             train_cf_with_neg = train_cf_with_neg[indices]
 
             # ----- training cf-----"""
-            model.kgcl.train()
-            model.recvae.train()
+            model.train()
             # -----  ----- -----
             aug_views = model.kgcl.get_aug_views()
             add_loss_dict = defaultdict(float)
@@ -134,14 +135,11 @@ if __name__ == '__main__':
                 batch_loss, batch_loss_dict = model(batch)
                 # 清 KGCL 和 RecVAE 的梯度
                 optimizer_kg.zero_grad()
-                optimizer_vae.zero_grad()
-                optimizer_alpha.zero_grad()
                 ## 反向傳播
                 batch_loss.backward()
                 ## 更新
                 optimizer_kg.step()
-                optimizer_vae.step()
-                optimizer_alpha.step()
+
                 for k, v in batch_loss_dict.items():
                     add_loss_dict[k] += v / len(train_cf)
                 s += args.batch_size
@@ -178,7 +176,6 @@ if __name__ == '__main__':
                 model.kgcl.eval()
                 model.recvae.eval()
                 test_start = time()
-                logger.info("Mixture ratio for testing: %04f ", model.alpha)
                 with torch.no_grad():
                     ret = evaluator.test(model, user_dict, n_params)
                 test_time = time() - test_start

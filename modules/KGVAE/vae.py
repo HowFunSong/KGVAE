@@ -156,7 +156,7 @@ class RecVAETrainer:
         self.opt_enc = torch.optim.Adam(self.recvae.encoder.parameters(), lr=lr)
         self.opt_dec = torch.optim.Adam(self.recvae.decoder.parameters(), lr=lr)
 
-    def pretrain_epoch(self, dropout_rate=0.5):
+    def train_one_epoch(self, dropout_rate=0.5):
         # 1) Encoder-only (有 dropout)
         total_enc_loss = 0.0
         self.recvae.train()
@@ -202,7 +202,7 @@ class RecVAETrainer:
 
         avg_enc, avg_dec = 0.0, 0.0
         for epoch in range(epochs):
-            avg_enc, avg_dec = self.pretrain_epoch(dropout_rate=dropout_rate)
+            avg_enc, avg_dec = self.train_one_epoch(dropout_rate=dropout_rate)
             print(f"[RecVAE 預訓練] Epoch {epoch + 1}/{epochs}  "
                   f"Encoder avg loss: {avg_enc:.4f}, Decoder avg loss: {avg_dec:.4f}")
 

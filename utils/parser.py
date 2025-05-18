@@ -103,6 +103,7 @@ def parse_args_kgvae_mlp():
         '--kg_ratio', type=float, default=1.0,
         help='Fraction of KG triples to use, range [0.1, 1.0]'
     )
+    parser.add_argument('--align_weight', type=float, default=0.1, help='mu')
     # ===== union traine parameter ===== #
     parser.add_argument( '--mix_weight', type=float, default=0.2, help='Weight of the mixed BPR loss during training, controlling its contribution to the overall loss (default: 0.2)')
     # ===== save model ===== #

@@ -15,7 +15,7 @@ from utils.evaluator import Evaluator
 from utils.helper import early_stopping, init_logger
 from utils.sampler import UniformSampler
 from modules.KGVAE.kgvae_mlp import build_user_item_matrix
-
+from modules.KGVAE.vae import VAE
 from modules.KGVAE.vae import RecVAETrainer
 def neg_sampling(cf_pairs, train_user_dict):
     t1 = time()
@@ -75,11 +75,11 @@ if __name__ == '__main__':
         model = KGVAEMLP(n_params, args, graph, adj_mat, user_item_matrix).to(device)
         model.kgcl.print_shapes()
         model.print_hyper_parameters()
-
+        recvae = VAE(hidden_dim=args.dim, latent_dim=args.dim, input_dim=n_items)
         # ────────────────────────────────────────────────────────────
         # 第一階段：用 RecVAETrainer 預訓練 RecVAE（交替 Encoder/Decoder）
         recvae_trainer = RecVAETrainer(
-            recvae=model.recvae,
+            recvae=recvae,
             user_item_matrix=user_item_matrix,
             lr=args.lr,
             n_enc_epochs=args.n_enc_epochs,
@@ -91,16 +91,28 @@ if __name__ == '__main__':
         final_enc, final_dec = recvae_trainer.pretrain(args.vae_epochs)
         logger.info("RecVAE pretraining complete. Final encoder loss=%.4f, decoder loss=%.4f",
                     final_enc, final_dec)
-        # 用預訓練好的 encoder 更新 KGCL 的使用者向量
-        # model.update_user_embeddings_from_recvae()
-        # logger.info("Pretraining of RecVAE complete; KGCL user embeddings have been updated.")
-        for p in model.recvae.parameters():
-            p.requires_grad_(False)
-        model.cache_user_latent()
+
+        logger.info("Pretraining of RecVAE complete")
+        recvae.eval()
+        with torch.no_grad():
+            mu, _ = recvae.encoder(
+                user_item_matrix,
+                dropout_rate=0
+            )
+        mu.detach()
+        model.cache_user_latent(mu)
+        # 1) 把 recvae 從 GPU 移到 CPU（可選，確保參數都遷移走）：
+        recvae.to('cpu')
+        # 2) 刪掉 recvae 以及它的 trainer，讓 Python GC 回收：
+        del recvae
+        del recvae_trainer
+        # 3) 呼叫 empty_cache 釋放 CUDA 記憶體：
+        torch.cuda.empty_cache()
+
         # ─────────────────────────────────────
         # 第二階段：訓練 KGCL 部分（包括 CF 與 KG 損失）
         optimizer_kg = torch.optim.Adam(model.kgcl.parameters(), lr=args.lr)
-
+        optimizer_model = torch.optim.Adam(model.parameters(), lr=args.lr)
 
         evaluator = Evaluator(args)
         test_interval = 1
@@ -134,11 +146,12 @@ if __name__ == '__main__':
                 batch['aug_views'] = aug_views
                 batch_loss, batch_loss_dict = model(batch)
                 # 清 KGCL 和 RecVAE 的梯度
-                optimizer_kg.zero_grad()
+                optimizer_model.zero_grad()
                 ## 反向傳播
                 batch_loss.backward()
                 ## 更新
-                optimizer_kg.step()
+                # optimizer_kg.step()
+                optimizer_model.step()
 
                 for k, v in batch_loss_dict.items():
                     add_loss_dict[k] += v / len(train_cf)
@@ -172,7 +185,7 @@ if __name__ == '__main__':
 
             # ----- 評估 -----
             if epoch % test_interval == 0 and epoch >= 0:
-                model.precompute_rec_scores()
+                # model.precompute_rec_scores()
                 model.kgcl.eval()
                 model.recvae.eval()
                 test_start = time()

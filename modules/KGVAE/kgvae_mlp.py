@@ -404,12 +404,14 @@ class KGVAEMLP(nn.Module):
 
         # Projection 層：線性映射 (使用 orthogonal 初始化) 將 GCN user embedding 映射到 RecVAE 隱空間
         self.proj_mlp = nn.Sequential(
+            nn.LayerNorm(self.args.dim),
             nn.Linear(self.args.dim, self.args.dim),
             nn.ReLU(),
+            nn.Dropout(p=0.2),
             nn.Linear(self.args.dim, self.args.dim, bias=False)
         )
         # 初始化最後一層為正交矩陣
-        nn.init.orthogonal_(self.proj_mlp[2].weight)
+        nn.init.orthogonal_(self.proj_mlp[-1].weight)
 
         # 超參
         self.cl_weight = args_config.cl_weight

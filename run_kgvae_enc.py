@@ -8,9 +8,9 @@ from collections import defaultdict
 from tqdm import tqdm
 from prettytable import PrettyTable
 from logging import getLogger
-from utils.parser import parse_args_kgvae
+from utils.parser import parse_args_kgvae_enc
 from utils.data_loader import load_data
-from modules.KGVAE.kgvae import KGVAE
+from modules.KGVAE.kgvae_enc import KGVAEENC
 from utils.evaluator import Evaluator
 from utils.helper import early_stopping, init_logger
 from utils.sampler import UniformSampler
@@ -55,7 +55,7 @@ if __name__ == '__main__':
     logger = getLogger()
     try:
         # 讀取參數與初始化 logger
-        args = parse_args_kgvae()
+        args = parse_args_kgvae_enc()
         device = torch.device("cuda:" + str(args.gpu_id)) if args.cuda else torch.device("cpu")
         log_fn = init_logger(args)
 
@@ -67,38 +67,21 @@ if __name__ == '__main__':
         n_users = n_params['n_users']
         n_items = n_params['n_items']
 
-        # 建立 user-item 交互矩陣 (用於 RecVAE 輸入)
-        user_item_matrix = build_user_item_matrix(train_cf, n_users, n_items, device)
-
         # 建立 KGVAE 模型
-        model = KGVAE(n_params, args, graph, adj_mat, user_item_matrix).to(device)
-        model.kgcl.print_shapes()
-        model.print_hyper_parameters()
+        model = KGVAEENC(n_params, args, graph, adj_mat).to(device)
+        model.print_shapes()
 
-        # ────────────────────────────────────────────────────────────
-        # 第一階段：用 RecVAETrainer 預訓練 RecVAE（交替 Encoder/Decoder）
         recvae_trainer = RecVAETrainer(
             recvae=model.recvae,
-            user_item_matrix=user_item_matrix,
-            lr=args.lr,
-            n_enc_epochs=args.n_enc_epochs,
-            n_dec_epochs=args.n_dec_epochs,
-            device=device
+            user_embeds=torch.zeros(n_users, args.dim, device=device),
+            lr=args.lr * 0.1,
+            n_enc_epochs=3,
+            n_dec_epochs=1,
+            device=device,
         )
-        logger.info("Pretraining RecVAE for %d epochs (enc %d / dec %d)...",
-                    args.vae_epochs, args.n_enc_epochs, args.n_dec_epochs)
-        final_enc, final_dec = recvae_trainer.pretrain(args.vae_epochs)
-        logger.info("RecVAE pretraining complete. Final encoder loss=%.4f, decoder loss=%.4f",
-                    final_enc, final_dec)
-        # 用預訓練好的 encoder 更新 KGCL 的使用者向量
-        model.update_user_embeddings_from_recvae()
-        logger.info("Pretraining of RecVAE complete; KGCL user embeddings have been updated.")
-
         # ─────────────────────────────────────
         # 第二階段：訓練 KGCL 部分（包括 CF 與 KG 損失）
-        optimizer_kg = torch.optim.Adam(model.kgcl.parameters(), lr=args.lr)
-        optimizer_vae = torch.optim.Adam(model.recvae.parameters(), lr=args.lr * 0.1)
-        optimizer_alpha = torch.optim.Adam([model.alpha], lr=args.lr)
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
         evaluator = Evaluator(args)
         test_interval = 1
@@ -118,10 +101,9 @@ if __name__ == '__main__':
             train_cf_with_neg = train_cf_with_neg[indices]
 
             # ----- training cf-----"""
-            model.kgcl.train()
-            model.recvae.train()
+            model.train()
             # -----  ----- -----
-            aug_views = model.kgcl.get_aug_views()
+            aug_views = model.get_aug_views()
             add_loss_dict = defaultdict(float)
             s = 0
             train_start = time()
@@ -132,16 +114,13 @@ if __name__ == '__main__':
                 # KGCL 內部產生 augmentation views
                 batch['aug_views'] = aug_views
                 batch_loss, batch_loss_dict = model(batch)
-                # 清 KGCL 和 RecVAE 的梯度
-                optimizer_kg.zero_grad()
-                optimizer_vae.zero_grad()
-                optimizer_alpha.zero_grad()
+                # 歸零梯度
+                optimizer.zero_grad()
                 ## 反向傳播
                 batch_loss.backward()
                 ## 更新
-                optimizer_kg.step()
-                optimizer_vae.step()
-                optimizer_alpha.step()
+                optimizer.step()
+
                 for k, v in batch_loss_dict.items():
                     add_loss_dict[k] += v / len(train_cf)
                 s += args.batch_size
@@ -161,24 +140,33 @@ if __name__ == '__main__':
                 kg_batch_relation = kg_batch_relation.to(device)
                 kg_batch_pos_tail = kg_batch_pos_tail.to(device)
                 kg_batch_neg_tail = kg_batch_neg_tail.to(device)
-                kg_loss = model.kgcl.calc_kg_loss_transE(kg_batch_head, kg_batch_relation,
+                kg_loss = model.calc_kg_loss_transE(kg_batch_head, kg_batch_relation,
                                                          kg_batch_pos_tail, kg_batch_neg_tail)
-                optimizer_kg.zero_grad()
+                optimizer.zero_grad()
                 kg_loss.backward()
-                optimizer_kg.step()
+                optimizer.step()
                 kg_total_loss += kg_loss.item()
             kg_time = time() - kg_start
 
             logger.info("Epoch %04d | CF Time: %.1fs | KG Time: %.1fs | Mean KG Loss: %.4f",
                         epoch, cf_time, kg_time, kg_total_loss / n_kg_batch)
+            # ----- vae 訓練 -----+
+            # --- VAE 訓練階段 ---
+            model.eval()
+            with torch.no_grad():
+                user_emb, _ = model.generate()
+            recvae_trainer.R = user_emb
+            avg_enc, avg_dec = recvae_trainer.train_one_epoch(dropout_rate=0.5)
+            logger.info(
+                "Epoch %04d | RecVAE EncAvgLoss: %.4f | DecAvgLoss: %.4f",
+                epoch, avg_enc, avg_dec
+            )
 
             # ----- 評估 -----
             if epoch % test_interval == 0 and epoch >= 0:
-                model.precompute_rec_scores()
-                model.kgcl.eval()
+                model.eval()
                 model.recvae.eval()
                 test_start = time()
-                logger.info("Mixture ratio for testing: %04f ", model.alpha)
                 with torch.no_grad():
                     ret = evaluator.test(model, user_dict, n_params)
                 test_time = time() - test_start

@@ -71,16 +71,12 @@ if __name__ == '__main__':
         # 建立 user-item 交互矩陣 (用於 RecVAE 輸入)
         user_item_matrix = build_user_item_matrix(train_cf, n_users, n_items, device)
 
-        # 建立 KGVAE 模型
-        model = KGVAEMLP(n_params, args, graph, adj_mat, user_item_matrix).to(device)
-        model.kgcl.print_shapes()
-        model.print_hyper_parameters()
         recvae = VAE(hidden_dim=args.dim, latent_dim=args.dim, input_dim=n_items)
         # ────────────────────────────────────────────────────────────
         # 第一階段：用 RecVAETrainer 預訓練 RecVAE（交替 Encoder/Decoder）
         recvae_trainer = RecVAETrainer(
             recvae=recvae,
-            user_item_matrix=user_item_matrix,
+            user_embeds=user_item_matrix,
             lr=args.lr,
             n_enc_epochs=args.n_enc_epochs,
             n_dec_epochs=args.n_dec_epochs,
@@ -100,17 +96,22 @@ if __name__ == '__main__':
                 dropout_rate=0
             )
         mu.detach()
-        model.cache_user_latent(mu)
-        # 1) 把 recvae 從 GPU 移到 CPU（可選，確保參數都遷移走）：
+
         recvae.to('cpu')
-        # 2) 刪掉 recvae 以及它的 trainer，讓 Python GC 回收：
+
         del recvae
         del recvae_trainer
-        # 3) 呼叫 empty_cache 釋放 CUDA 記憶體：
         torch.cuda.empty_cache()
 
         # ─────────────────────────────────────
         # 第二階段：訓練 KGCL 部分（包括 CF 與 KG 損失）
+        # 建立 KGVAE 模型
+        model = KGVAEMLP(n_params, args, graph, adj_mat, user_item_matrix).to(device)
+        model.kgcl.print_shapes()
+        model.print_hyper_parameters()
+        # print(mu)
+        model.cache_user_latent(mu)
+
         optimizer_kg = torch.optim.Adam(model.kgcl.parameters(), lr=args.lr)
         optimizer_model = torch.optim.Adam(model.parameters(), lr=args.lr)
 
@@ -185,9 +186,8 @@ if __name__ == '__main__':
 
             # ----- 評估 -----
             if epoch % test_interval == 0 and epoch >= 0:
-                # model.precompute_rec_scores()
+
                 model.kgcl.eval()
-                model.recvae.eval()
                 test_start = time()
                 with torch.no_grad():
                     ret = evaluator.test(model, user_dict, n_params)

@@ -8,22 +8,35 @@ from collections import defaultdict
 from tqdm import tqdm
 from prettytable import PrettyTable
 from logging import getLogger
-from utils.parser import parse_args_kgvae
+from utils.parser import parse_args_kgvae_hard
 from utils.data_loader import load_data
-from modules.KGVAE.kgvae import KGVAE
+from modules.KGVAE.kgvae_hard import KGVAEHARD
 from utils.evaluator import Evaluator
 from utils.helper import early_stopping, init_logger
 from utils.sampler import UniformSampler
 from modules.KGVAE.kgvae import build_user_item_matrix
 from modules.KGVAE.vae import RecVAETrainer
-def neg_sampling(cf_pairs, train_user_dict):
+
+
+# 修正後的 neg_sampling
+def neg_sampling(cf_pairs, train_user_dict, hard_neg_set):
     t1 = time()
-    cf_negs = sampling.sample_negative(cf_pairs[:, 0], n_items, train_user_dict, 1)
-    cf_triples = np.concatenate([cf_pairs, cf_negs], axis=1)
+    cf_negs = []
+    for u, _ in cf_pairs:
+        if random.random() < args.hard_p and hard_neg_set.get(u):
+            neg = random.choice(hard_neg_set[u])
+        else:
+            # 這裡先傳入 np.array([u])，再索引 [0,0] 才是真正的 scalar
+            neg_array = sampling.sample_negative(np.array([u]), n_items, train_user_dict, 1)  # shape (1,1)
+            neg = int(neg_array[0, 0])
+        cf_negs.append(neg)
+
+    cf_triples = np.concatenate([cf_pairs, np.array(cf_negs)[:, None]], axis=1)
     t2 = time()
     logger.info("Negative sampling time: %.2fs", t2 - t1)
     logger.info("train_cf_triples shape: %s", str(cf_triples.shape))
     return cf_triples
+
 
 def get_feed_dict(data, start, end):
             feed = {}
@@ -55,7 +68,7 @@ if __name__ == '__main__':
     logger = getLogger()
     try:
         # 讀取參數與初始化 logger
-        args = parse_args_kgvae()
+        args = parse_args_kgvae_hard()
         device = torch.device("cuda:" + str(args.gpu_id)) if args.cuda else torch.device("cpu")
         log_fn = init_logger(args)
 
@@ -71,7 +84,7 @@ if __name__ == '__main__':
         user_item_matrix = build_user_item_matrix(train_cf, n_users, n_items, device)
 
         # 建立 KGVAE 模型
-        model = KGVAE(n_params, args, graph, adj_mat, user_item_matrix).to(device)
+        model = KGVAEHARD(n_params, args, graph, adj_mat, user_item_matrix).to(device)
         model.kgcl.print_shapes()
         model.print_hyper_parameters()
 
@@ -102,17 +115,38 @@ if __name__ == '__main__':
 
         evaluator = Evaluator(args)
         test_interval = 1
-        early_stop_step = 5
+        early_stop_step = 10
         cur_best_pre_0 = 0
         cur_stopping_step = 0
 
         logger.info("Starting KGCL training...")
         cur_epoch = 0
+
+        # 在進入 epoch 迴圈之前，先初始化 hard_neg_dict
+        hard_neg_dict = {u: [] for u in range(n_users)}
+
         for epoch in range(args.epoch):
+
+            if epoch % args.hard_update_interval == 0:
+                model.eval()
+                with torch.no_grad():
+                    # 拿到全部 user/item embedding
+                    u_emb, i_emb = model.generate()  # (n_users, D), (n_users+n_items->items?)
+                    # 如果 generate 回 user+item concat，請 split 掉只留 item_emb
+                    i_emb = i_emb  # suppose this is (n_items, D)
+                    for u in range(n_users):
+                        scores = (u_emb[u:u + 1] @ i_emb.t()).squeeze(0)  # (n_items,)
+                        # 把真實正樣本遮掉
+                        pos = set(user_dict['train_user_set'][u])
+                        scores[list(pos)] = -1e9
+                        # 選出 top-K
+                        topk = torch.topk(scores, k=args.hard_k).indices.cpu().tolist()
+                        hard_neg_dict[u] = topk
+
             cur_epoch = epoch
             # ----- CF 部分訓練 -----
             # ----- cf data ----- """
-            train_cf_with_neg = neg_sampling(train_cf, user_dict['train_user_set'])
+            train_cf_with_neg = neg_sampling(train_cf, user_dict['train_user_set'], hard_neg_set=hard_neg_dict)
             indices = np.arange(len(train_cf))
             np.random.shuffle(indices)
             train_cf_with_neg = train_cf_with_neg[indices]

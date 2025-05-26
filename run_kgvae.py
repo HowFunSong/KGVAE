@@ -79,7 +79,7 @@ if __name__ == '__main__':
         # 第一階段：用 RecVAETrainer 預訓練 RecVAE（交替 Encoder/Decoder）
         recvae_trainer = RecVAETrainer(
             recvae=model.recvae,
-            user_item_matrix=user_item_matrix,
+            user_embeds=user_item_matrix,
             lr=args.lr,
             n_enc_epochs=args.n_enc_epochs,
             n_dec_epochs=args.n_dec_epochs,

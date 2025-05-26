@@ -8,9 +8,9 @@ from collections import defaultdict
 from tqdm import tqdm
 from prettytable import PrettyTable
 from logging import getLogger
-from utils.parser import parse_args_kgvae_mlp
+from utils.parser import parse_args_kgvae_aug
 from utils.data_loader import load_data
-from modules.KGVAE.kgvae_mlp import KGVAEMLP
+from modules.KGVAE.kgvae_aug import KGVAEAUG
 from utils.evaluator import Evaluator
 from utils.helper import early_stopping, init_logger
 from utils.sampler import UniformSampler
@@ -56,7 +56,7 @@ if __name__ == '__main__':
     logger = getLogger()
     try:
         # 讀取參數與初始化 logger
-        args = parse_args_kgvae_mlp()
+        args =  parse_args_kgvae_aug()
         device = torch.device("cuda:" + str(args.gpu_id)) if args.cuda else torch.device("cpu")
         log_fn = init_logger(args)
 
@@ -71,13 +71,12 @@ if __name__ == '__main__':
         # 建立 user-item 交互矩陣 (用於 RecVAE 輸入)
         user_item_matrix = build_user_item_matrix(train_cf, n_users, n_items, device)
 
-
         recvae = VAE(hidden_dim=args.dim, latent_dim=args.dim, input_dim=n_items)
         # ────────────────────────────────────────────────────────────
         # 第一階段：用 RecVAETrainer 預訓練 RecVAE（交替 Encoder/Decoder）
         recvae_trainer = RecVAETrainer(
             recvae=recvae,
-            user_item_matrix=user_item_matrix,
+            user_embeds=user_item_matrix,
             lr=args.lr,
             n_enc_epochs=args.n_enc_epochs,
             n_dec_epochs=args.n_dec_epochs,
@@ -108,7 +107,7 @@ if __name__ == '__main__':
         # ─────────────────────────────────────
         # 第二階段：訓練 KGCL 部分（包括 CF 與 KG 損失）
         # 建立 KGVAE 模型
-        model = KGVAEMLP(n_params, args, graph, adj_mat, user_item_matrix).to(device)
+        model = KGVAEAUG(n_params, args, graph, adj_mat, user_item_matrix).to(device)
         model.kgcl.print_shapes()
         model.print_hyper_parameters()
         # print(mu)

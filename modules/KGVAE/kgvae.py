@@ -248,19 +248,25 @@ class KGCL(nn.Module):
         u_e = user_emb[user]
         pos_e, neg_e = item_emb[pos_item], item_emb[neg_item]
         rec_loss, reg_loss = self.bpr_loss(u_e, pos_e, neg_e)
-        print("u_e shape : ", u_e.shape)
-        print("pos_e shape : ",  pos_e.shape)
-        print("neg_e shape : ", neg_e.shape)
+        # print("u_e shape : ", u_e.shape)
+        # print("pos_e shape : ",  pos_e.shape)
+        # print("neg_e shape : ", neg_e.shape)
 
         # CL
         users_v1_ro, items_v1_ro = self.gcn(kg_view_1[0], kg_view_1[1], ui_view_1)
         users_v2_ro, items_v2_ro = self.gcn(kg_view_2[0], kg_view_2[1], ui_view_2)
+        # user_cl_loss = self.infonce_overall(users_v1_ro[user], users_v2_ro[user], users_v2_ro)
+        # item_cl_loss = self.infonce_overall(items_v1_ro[pos_item], items_v2_ro[pos_item], items_v2_ro)
+        #
+        # cl_loss = self.cl_weight * (user_cl_loss + item_cl_loss)
+        # loss = rec_loss + self.decay * reg_loss + cl_loss
+        # ---------------
         user_cl_loss = self.infonce_overall(users_v1_ro[user], users_v2_ro[user], users_v2_ro)
         item_cl_loss = self.infonce_overall(items_v1_ro[pos_item], items_v2_ro[pos_item], items_v2_ro)
 
         cl_loss = self.cl_weight * (user_cl_loss + item_cl_loss)
-        loss = rec_loss + self.decay * reg_loss + cl_loss
-
+        loss = rec_loss + self.decay * reg_loss
+        # ---------------
         loss_dict = {
             "rec_loss": rec_loss.item(),
             "cl_loss": cl_loss.item(),
@@ -462,7 +468,7 @@ class KGVAE(nn.Module):
         loss = (
                 rec_loss
                 + self.decay * reg_loss
-                + cl_loss
+                # + cl_loss
                 + self.mix_weight * mix_bpr_loss
         )
         metrics = {

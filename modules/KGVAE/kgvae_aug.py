@@ -204,7 +204,33 @@ class KGCL(nn.Module):
         col = col[edge_mask]
         row = row[edge_mask]
         v = v[edge_mask]
+        ####
+        # 2) 計算要新增的邊數量（等於被丟掉的邊數）
+        total_edges = edge_mask.numel()
+        kept_edges  = int(edge_mask.sum().item())
+        n_add       = total_edges - kept_edges
 
+        # 3) 隨機增邊：從所有 (u,i) 中挑不在目前 row/col 裡的組合
+        #    建立一個 set 存目前已存在的邊，方便查重
+        exist = set((int(u), int(i)) for u,i in zip(row.tolist(), col.tolist()))
+
+        u_noise = []
+        i_noise = []
+        while len(u_noise) < n_add:
+            # 隨機選 user、item
+            u = np.random.randint(0, self.n_users)
+            i = np.random.randint(0, self.n_items)
+            if (u,i) not in exist:
+                exist.add((u, i))
+                u_noise.append(u)
+                i_noise.append(i)
+
+        # 4) 把偽邊併入 row/col/v
+        col = np.concatenate([col, np.array(i_noise, dtype=col.dtype)], axis=0)
+        row = np.concatenate([row, np.array(u_noise, dtype=row.dtype)], axis=0)
+        v = np.concatenate([v, np.ones(n_add, dtype=v.dtype)], axis=0)
+
+        ####
         masked_ui_mat = sp.coo_matrix((v, (row, col)), shape=(self.n_users, self.n_items))
         return self._make_binorm_adj(masked_ui_mat)
 
@@ -383,7 +409,7 @@ def build_user_item_matrix(train_cf, n_users, n_items, device):
     return torch.tensor(mat, device=device)
 
 
-class KGVAEMLP(nn.Module):
+class KGVAEAUG(nn.Module):
     def __init__(self, data_config, args_config, graph, adj_mat, user_item_matrix):
         """
                data_config: 包含 n_users, n_items, n_entities 等參數的字典
@@ -391,7 +417,7 @@ class KGVAEMLP(nn.Module):
                graph, kg_dict, adj_mat: KGCL 所需的結構資料
                user_item_matrix: 使用者-項目交互矩陣 (shape: n_users x n_items)
                """
-        super(KGVAEMLP, self).__init__()
+        super(KGVAEAUG, self).__init__()
         self.logger = getLogger()
         self.n_users = data_config['n_users']
         self.n_items = data_config['n_items']
@@ -486,9 +512,11 @@ class KGVAEMLP(nn.Module):
     def scores(self, user_indices, item_indices, u_g_embeddings, i_g_embeddings):
         """
         計算完整的 user-item 分數矩陣，用於 generate()
+
         Args:
             u_g_embeddings (Tensor [n_users, D])
             i_g_embeddings (Tensor [n_items, D])
+
         Returns:
             score_matrix (Tensor [n_users, n_items])
         """

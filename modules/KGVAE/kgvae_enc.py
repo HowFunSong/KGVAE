@@ -8,7 +8,6 @@ from scipy.sparse import csr_matrix
 import scipy.sparse as sp
 from modules.KGVAE.vae import VAE
 
-
 def wasserstein_1d_torch(p: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
     """
     Compute 1D Earth Mover’s Distance (Wasserstein) between two non-negative
@@ -29,7 +28,6 @@ def wasserstein_1d_torch(p: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
 
 def _L2_loss_mean(x):
     return torch.mean(torch.sum(torch.pow(x, 2), dim=1, keepdim=False) / 2.)
-
 
 def _edge_sampling(edge_index, edge_type, rate=0.5):
     # edge_index: [2, -1]
@@ -103,9 +101,9 @@ class RGAT(nn.Module):
         return entity_emb
 
 
-class KGCL(nn.Module):
+class KGVAEENC(nn.Module):
     def __init__(self, data_config, args_config, kg_graph, adj_mat):
-        super(KGCL, self).__init__()
+        super(KGVAEENC, self).__init__()
         self.n_users = data_config['n_users']
         self.n_items = data_config['n_items']
         self.n_relations = data_config['n_relations']
@@ -138,6 +136,8 @@ class KGCL(nn.Module):
         self.relation_embed = nn.Parameter(self.relation_embed)
         self.rgat = RGAT(self.emb_size, self.context_hops, self.mess_dropout_rate)
 
+        self.recvae = VAE(hidden_dim=args_config.dim, latent_dim=args_config.dim, input_dim=args_config.dim)
+        self.alpha = nn.Parameter(torch.tensor(0.5))
     def _make_binorm_adj(self, mat):
         a = csr_matrix((self.n_users, self.n_users))
         b = csr_matrix((self.n_items, self.n_items))
@@ -179,7 +179,7 @@ class KGCL(nn.Module):
             v,  # values: shape [nnz]
             coo.shape,  # sparse 張量的大小
             dtype=v.dtype,  # 跟原本的 values 保持相同 dtype
-            device=coo.device  # 或 self.device，看你變數命名
+            device=coo.device  # 或 self.device
         )
 
     def get_ui_aug_views(self, kg_stability, mu):
@@ -204,6 +204,7 @@ class KGCL(nn.Module):
         col = col[edge_mask]
         row = row[edge_mask]
         v = v[edge_mask]
+
 
         masked_ui_mat = sp.coo_matrix((v, (row, col)), shape=(self.n_users, self.n_items))
         return self._make_binorm_adj(masked_ui_mat)
@@ -246,24 +247,27 @@ class KGCL(nn.Module):
 
         user_emb, item_emb = self.gcn(edge_index, edge_type, g_droped)
         u_e = user_emb[user]
+        u_vae = self.recvae(user_embeds=u_e, dropout_rate=0.5, calculate_loss=False)
+
+        u_mix = self.alpha * u_e + (1 - self.alpha) * u_vae
         pos_e, neg_e = item_emb[pos_item], item_emb[neg_item]
-        rec_loss, reg_loss = self.bpr_loss(u_e, pos_e, neg_e)
-        print("u_e shape : ", u_e.shape)
-        print("pos_e shape : ", pos_e.shape)
-        print("neg_e shape : ", neg_e.shape)
+        rec_loss, reg_loss = self.bpr_loss(u_mix, pos_e, neg_e)
 
         # CL
         users_v1_ro, items_v1_ro = self.gcn(kg_view_1[0], kg_view_1[1], ui_view_1)
         users_v2_ro, items_v2_ro = self.gcn(kg_view_2[0], kg_view_2[1], ui_view_2)
+
         user_cl_loss = self.infonce_overall(users_v1_ro[user], users_v2_ro[user], users_v2_ro)
         item_cl_loss = self.infonce_overall(items_v1_ro[pos_item], items_v2_ro[pos_item], items_v2_ro)
+        # user_gnn_vae_cl_loss = self.infonce_overall(u_mix, users_v2_ro[user], users_v2_ro)
 
         cl_loss = self.cl_weight * (user_cl_loss + item_cl_loss)
-        loss = rec_loss + self.decay * reg_loss + cl_loss
-
+        loss = rec_loss + self.decay * reg_loss
+        # ---------------
         loss_dict = {
             "rec_loss": rec_loss.item(),
             "cl_loss": cl_loss.item(),
+            'alpha': float(self.alpha)
         }
         return loss, loss_dict
 
@@ -301,6 +305,7 @@ class KGCL(nn.Module):
             print("nan loss")
             return None
         return loss, reg_loss
+
 
     def calc_kg_loss_transE(self, h, r, pos_t, neg_t):
         """
@@ -348,8 +353,17 @@ class KGCL(nn.Module):
         loss = torch.sum(-torch.log(positive_pairs / negative_pairs))
         return loss
 
-    def rating(self, u_g_embeddings, i_g_embeddings):
-        return torch.matmul(u_g_embeddings, i_g_embeddings.t())
+    def scores(self, user_indices, item_indices, u_g_embeddings, i_g_embeddings):
+        self.logger.info("alpha: %s", self.alpha)
+        # GCN 分數
+        gcn_scores = torch.matmul(u_g_embeddings, i_g_embeddings.t())
+        # VAE 分數
+        recon_user_emb = self.recvae(user_embeds=u_g_embeddings, dropout_rate=0, calculate_loss=False)
+        vae_scores = torch.matmul(recon_user_emb, i_g_embeddings.t())
+        # 最終分數（例如 alpha混合）
+
+        final_score = self.alpha * gcn_scores + (1 - self.alpha) * vae_scores
+        return final_score
 
     def print_shapes(self):
         self.logger.info("########## Model HPs ##########")
@@ -369,133 +383,3 @@ class KGCL(nn.Module):
         self.logger.info('edge_type: {}'.format(self.edge_type.shape))
         self.logger.info('sim_metric: {}'.format(self.args.sim_metric))
 
-
-# ---------------------------
-# 輔助函數：將 train_cf 轉換為 user-item 交互矩陣
-def build_user_item_matrix(train_cf, n_users, n_items, device):
-    """
-    將 train_cf (shape: [N, 2]) 轉換成 shape: (n_users, n_items)
-    每列代表一個使用者對所有項目的交互（此處以 0/1 編碼）
-    """
-    mat = np.zeros((n_users, n_items), dtype=np.float32)
-    for u, i in train_cf:
-        mat[int(u), int(i)] = 1.0
-    return torch.tensor(mat, device=device)
-
-
-class KGVAEMLP(nn.Module):
-    def __init__(self, data_config, args_config, graph, adj_mat, user_item_matrix):
-        """
-               data_config: 包含 n_users, n_items, n_entities 等參數的字典
-               args_config: 參數
-               graph, kg_dict, adj_mat: KGCL 所需的結構資料
-               user_item_matrix: 使用者-項目交互矩陣 (shape: n_users x n_items)
-               """
-        super(KGVAEMLP, self).__init__()
-        self.logger = getLogger()
-        self.n_users = data_config['n_users']
-        self.n_items = data_config['n_items']
-        self.args = args_config
-        self.user_item_matrix = user_item_matrix  # RecVAE 輸入
-
-        # 建立 KGCL 模組
-        self.kgcl = KGCL(data_config, args_config, graph, adj_mat)
-
-        # Projection 層：線性映射 (使用 orthogonal 初始化) 將 GCN user embedding 映射到 RecVAE 隱空間
-        self.proj_mlp = nn.Sequential(
-            nn.LayerNorm(self.args.dim),
-            nn.Linear(self.args.dim, self.args.dim),
-            nn.ReLU(),
-            nn.Dropout(p=0.2),
-            nn.Linear(self.args.dim, self.args.dim, bias=False)
-        )
-        # 初始化最後一層為正交矩陣
-        nn.init.orthogonal_(self.proj_mlp[-1].weight)
-
-        # 超參
-        self.cl_weight = args_config.cl_weight
-        self.decay = args_config.l2
-        self.align_weight = args_config.align_weight
-        self.alpha = nn.Parameter(torch.tensor(0.5))
-        self.user_latent = torch.zeros(self.n_users, args_config.dim)
-
-    def cache_user_latent(self, user_latent):
-        """第一階段 RecVAE 預訓練完成後呼叫，一次性計算並快取所有使用者的潛在表示"""
-        self.user_latent = user_latent
-
-    def print_hyper_parameters(self):
-        self.logger.info("########## Model(KGVAE) HPs ##########")
-
-    def forward(self, batch):
-        users = batch['users']  # [B]
-        pos_items = batch['pos_items']  # [B]
-        neg_items = batch['neg_items']  # [B]
-        kg_v1, kg_v2, ui_v1, ui_v2 = batch['aug_views']
-
-        # 1) GCN/RGAT → u_all:[n_users,D], i_all:[n_items,D]
-        if self.kgcl.node_dropout:
-            g = _sparse_dropout(self.kgcl.binorm_adj, self.kgcl.node_dropout_rate)
-            ei, et = _edge_sampling(self.kgcl.edge_index, self.kgcl.edge_type, self.kgcl.node_dropout_rate)
-        else:
-            g, ei, et = self.kgcl.binorm_adj, self.kgcl.edge_index, self.kgcl.edge_type
-        u_all, i_all = self.kgcl.gcn(ei, et, g)
-
-        # 2) 切 batch 上的 embedding + latent
-        u_e = u_all[users]  # [B, D]
-        pos_e = i_all[pos_items]  # [B, D]
-        neg_e = i_all[neg_items]  # [B, D]
-        # 3) 映射到 RecVAE 隱空間並正規化
-        p_u = self.proj_mlp(u_e)
-        p_u = F.normalize(p_u, dim=1) * getattr(self, 'alpha', 1.0)
-        # 4. 從快取 latent 取得 RecVAE latent 並正規化
-        if self.user_latent is None:
-            print("user_latent is None")
-        z_u = self.user_latent[users]  # [B, D]
-        z_u_norm = F.normalize(z_u, dim=1)
-
-        # 6. BPR 推薦損失
-        combined_u = u_e + p_u
-        pos_score = torch.sum(combined_u * pos_e, dim=1)
-        neg_score = torch.sum(combined_u * neg_e, dim=1)
-        rec_loss = torch.sum(F.softplus(-(pos_score - neg_score)))
-        reg_loss = (u_e.norm(2).pow(2) + pos_e.norm(2).pow(2) + neg_e.norm(2).pow(2)) / (2.0 * u_e.shape[0])
-
-        # 7) 對齊損失：p_u 與 RecVAE latent
-        align_loss = F.mse_loss(p_u, z_u_norm) * self.align_weight
-
-        # 8) KGCL 對比學習
-        u1, i1 = self.kgcl.gcn(kg_v1[0], kg_v1[1], ui_v1)
-        u2, i2 = self.kgcl.gcn(kg_v2[0], kg_v2[1], ui_v2)
-        user_cl = self.kgcl.infonce_overall(u1[users], u2[users], u2)
-        item_cl = self.kgcl.infonce_overall(i1[pos_items], i2[pos_items], i2)
-        cl_loss = self.cl_weight * (user_cl + item_cl)
-
-        # 9) 總損失
-        loss = rec_loss + self.decay * reg_loss + cl_loss + align_loss
-
-        return loss, {
-            'rec_loss': rec_loss.item(),
-            'reg_loss': reg_loss.item(),
-            'cl_loss': cl_loss.item(),
-            'align_loss': align_loss.item()
-        }
-
-    def generate(self):
-        return self.kgcl.generate()
-
-    def scores(self, user_indices, item_indices, u_g_embeddings, i_g_embeddings):
-        """
-        計算完整的 user-item 分數矩陣，用於 generate()
-        Args:
-            u_g_embeddings (Tensor [n_users, D])
-            i_g_embeddings (Tensor [n_items, D])
-        Returns:
-            score_matrix (Tensor [n_users, n_items])
-        """
-        self.logger.info("alpha: %s", self.alpha)
-
-        p_u = F.normalize(self.proj_mlp(u_g_embeddings), dim=1)  # [n_users, D]
-        combined_u = u_g_embeddings + p_u * self.alpha
-        scores = combined_u @ i_g_embeddings.t()
-
-        return scores

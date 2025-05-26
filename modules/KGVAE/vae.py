@@ -13,7 +13,6 @@ def swish(x):
 def log_norm_pdf(x, mu, logvar):
     return -0.5 * (logvar + np.log(2 * np.pi) + (x - mu).pow(2) / logvar.exp())
 
-
 class CompositePrior(nn.Module):
     def __init__(self, hidden_dim, latent_dim, input_dim, mixture_weights=[3 / 20, 3 / 4, 1 / 10]):
         super(CompositePrior, self).__init__()
@@ -46,7 +45,6 @@ class CompositePrior(nn.Module):
 
         return torch.logsumexp(density_per_gaussian, dim=-1)
 
-
 class Encoder(nn.Module):
     def __init__(self, hidden_dim, latent_dim, input_dim, eps=1e-1):
         super(Encoder, self).__init__()
@@ -76,7 +74,6 @@ class Encoder(nn.Module):
         h5 = self.ln5(swish(self.fc5(h4) + h1 + h2 + h3 + h4))
         return self.fc_mu(h5), self.fc_logvar(h5)
 
-
 class VAE(nn.Module):
     def __init__(self, hidden_dim, latent_dim, input_dim):
         super(VAE, self).__init__()
@@ -96,22 +93,22 @@ class VAE(nn.Module):
     # feed['pos_items'] = pairs[:, 1]
     # feed['neg_items'] = pairs[:, 2]
     # feed['batch_start'] = start
-    def forward(self, user_ratings, beta=None, gamma=1, dropout_rate=0.2, calculate_loss=True):
+    def forward(self, user_embeds, beta=None, gamma=1, dropout_rate=0.5, calculate_loss=True):
         # print(user_ratings.shape)
-        mu, logvar = self.encoder(user_ratings, dropout_rate=dropout_rate)
+        mu, logvar = self.encoder(user_embeds, dropout_rate=dropout_rate)
         z = self.reparameterize(mu, logvar)
         x_pred = self.decoder(z)
         # print(x_pred.shape)
         if calculate_loss:
 
             if gamma:
-                norm = user_ratings.sum(dim=-1)
+                norm = user_embeds.sum(dim=-1)
                 kl_weight = gamma * norm
             elif beta:
                 kl_weight = beta
 
-            mll = (F.log_softmax(x_pred, dim=-1) * user_ratings).sum(dim=-1).mean()
-            kld = (log_norm_pdf(z, mu, logvar) - self.prior(user_ratings, z)).sum(dim=-1).mul(kl_weight).mean()
+            mll = (F.log_softmax(x_pred, dim=-1) * user_embeds).sum(dim=-1).mean()
+            kld = (log_norm_pdf(z, mu, logvar) - self.prior(user_embeds, z)).sum(dim=-1).mul(kl_weight).mean()
             negative_elbo = -(mll - kld)
 
             return (mll, kld), negative_elbo
@@ -127,7 +124,7 @@ class RecVAETrainer:
     def __init__(
             self,
             recvae: VAE,
-            user_item_matrix: torch.Tensor,
+            user_embeds: torch.Tensor,
             lr: float,
             n_enc_epochs: int,
             n_dec_epochs: int,
@@ -145,7 +142,7 @@ class RecVAETrainer:
         """
         # 將 RecVAE 和交互矩陣搬到指定裝置
         self.recvae = recvae.to(device)
-        self.R = user_item_matrix.to(device)
+        self.R = user_embeds.to(device)
         self.n_enc = n_enc_epochs
         self.n_dec = n_dec_epochs
         self.beta = beta

@@ -383,7 +383,7 @@ def build_user_item_matrix(train_cf, n_users, n_items, device):
     return torch.tensor(mat, device=device)
 
 
-class KGVAEMLP(nn.Module):
+class KGVAEDEC(nn.Module):
     def __init__(self, data_config, args_config, graph, adj_mat, user_item_matrix):
         """
                data_config: 包含 n_users, n_items, n_entities 等參數的字典
@@ -391,7 +391,7 @@ class KGVAEMLP(nn.Module):
                graph, kg_dict, adj_mat: KGCL 所需的結構資料
                user_item_matrix: 使用者-項目交互矩陣 (shape: n_users x n_items)
                """
-        super(KGVAEMLP, self).__init__()
+        super(KGVAEDEC, self).__init__()
         self.logger = getLogger()
         self.n_users = data_config['n_users']
         self.n_items = data_config['n_items']
@@ -440,8 +440,8 @@ class KGVAEMLP(nn.Module):
         reg_loss = (u_e.norm(2).pow(2) + pos_e.norm(2).pow(2) + neg_e.norm(2).pow(2)) / (2.0 * u_e.shape[0])
 
         # 7) 對齊損失：p_u 與 RecVAE latent
-        vae_pos = self.rec_scores[users, pos_items] * self.align_weight
-        align_loss = F.mse_loss(pos_score, vae_pos)
+        vae_pos = self.rec_scores[users, pos_items]
+        align_loss = F.mse_loss(pos_score, vae_pos) * self.align_weight
 
         # 8) KGCL 對比學習
         u1, i1 = self.kgcl.gcn(kg_v1[0], kg_v1[1], ui_v1)

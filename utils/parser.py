@@ -366,7 +366,7 @@ def parse_args_kgease():
     parser.add_argument("--channel", type=int, default=64, help="hidden channels for model")
     parser.add_argument("--cuda", type=int, default=1, help="use gpu or not")
     parser.add_argument("--gpu_id", type=int, default=0, help="gpu id")
-    parser.add_argument('--Ks', nargs='?', default='[10]', help="List of K values for Top-K evaluation")
+    parser.add_argument('--Ks', nargs='?', default='[10,20]', help="List of K values for Top-K evaluation")
     parser.add_argument('--test_flag', nargs='?', default='part',
                         help='Specify the test type from {part, full}, indicating whether the reference is done in mini-batch')
     # parser.add_argument('--alpha'args_config.alpha)
@@ -384,7 +384,10 @@ def parse_args_kgease():
     parser.add_argument("--hard_update_interval", type=int, default=4,
                         help="Interval (in epochs) between hard negative mining updates")
     parser.add_argument("--hard_k", type=int, default=400, help="Number of hard negative samples to maintain per user")
-    parser.add_argument("--hard_p", type=float, default=0.2,
+    parser.add_argument("--lower_bound", type=int, default=50, help="low bound of hard sample interval")
+    parser.add_argument("--upper_bound", type=int, default=80, help="upper bound of hard sample interval")
+
+    parser.add_argument("--hard_p", type=float, default=0.4,
                         help="Probability of drawing a negative sample from the hard negatives pool")
 
     # ===== save model ===== #

@@ -90,23 +90,30 @@ if __name__ == '__main__':
         # 建立 user-item 交互矩陣 (用於 RecVAE 輸入)
         user_item_matrix = build_user_item_matrix(train_cf, n_users, n_items, device)
 
-        # 建立 KGVAE 模型
+        # 建立 KGEASE 模型
         model = KGEASE(n_params, args, graph, adj_mat).to(device)
         model.print_shapes()
         print(">>> data_config['n_items'] :", n_items)
         print(">>> model.n_items          :", model.n_items)
         # ────────────────────────────────────────────────────────────
         # 1) 初始化並 fit
-        ease_model = EASE(reg=args.ease_reg).to(device)
+        # ease_model = EASE(reg=args.ease_reg).to(device)
+        #
+        # print(">>> user_item_matrix.shape:", user_item_matrix.shape)
+        # ease_model.fit(user_item_matrix)  # user_item_matrix shape = [n_users, n_items]
+        #
+        # # 2) 一次性算出所有 user×item 的分數
+        # ease_scores = ease_model(user_item_matrix)  # [n_users, n_items]
+        # print(">>> ease_scores.shape:", ease_scores.shape)
+        #
+        # model.ease_scores = ease_scores
 
-        print(">>> user_item_matrix.shape:", user_item_matrix.shape)
-        ease_model.fit(user_item_matrix)  # user_item_matrix shape = [n_users, n_items]
-
-        # 2) 一次性算出所有 user×item 的分數
-        ease_scores = ease_model(user_item_matrix)  # [n_users, n_items]
-        print(">>> ease_scores.shape:", ease_scores.shape)
-
-        model.ease_scores = ease_scores
+        user_item_matrix_cpu = user_item_matrix.cpu()
+        ease_model = EASE(reg=args.ease_reg).to('cpu')
+        ease_model.fit(user_item_matrix_cpu)
+        ease_scores_cpu = ease_model(user_item_matrix_cpu).cpu()  # [n_users, n_items] on CPU
+        print(">>> ease_scores.shape:", ease_scores_cpu.shape)
+        model.ease_scores = ease_scores_cpu
 
         # ─────────────────────────────────────
         # 第二階段：訓練 KGCL 部分（包括 CF 與 KG 損失）
@@ -128,18 +135,23 @@ if __name__ == '__main__':
             if epoch % args.hard_update_interval == 0:
                 model.eval()
                 with torch.no_grad():
-                    # 拿到全部 user/item embedding
-                    u_emb, i_emb = model.generate()
+                    # 拿到全量 embedding 和 ease_scores
+                    u_emb, i_emb = model.generate()  # [n_users, D], [n_items, D]
+                    ease_gpu = model.ease_scores.to(device, non_blocking=True)
 
                     for u in range(n_users):
-                        scores = (u_emb[u] @ i_emb.t()).squeeze(0)  # (n_items,)
-                        scores = scores * model.ease_scores[u][:]
-                        # 把真實正樣本遮掉
+                        # 1) 計算該 user 的全量分數、排除訓練正樣本
+                        scores = (u_emb[u] @ i_emb.t()) * ease_gpu[u]  # [n_items]
                         pos = set(user_dict['train_user_set'][u])
                         scores[list(pos)] = -1e9
-                        # 選出 top-K
-                        topk = torch.topk(scores, k=args.hard_k).indices.cpu().tolist()
-                        hard_neg_dict[u] = topk
+
+                        # 2) 取 60–80 百分位作為 semi-hard 的範圍
+                        vals = scores.cpu().numpy()
+                        low, high = np.percentile(vals, [args.lower_bound, args.upper_bound])
+                        mask = (vals >= low) & (vals <= high)
+
+                        # 3) 將符合條件的 index 作為候選
+                        hard_neg_dict[u] = np.where(mask)[0].tolist()
 
             cur_epoch = epoch
             # ----- CF 部分訓練 -----

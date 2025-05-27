@@ -253,15 +253,18 @@ class KGEASE(nn.Module):
         pos_scores_kg = torch.sum(u_e * pos_e, dim=1)  # [B]
         neg_scores_kg = torch.sum(u_e * neg_e, dim=1)  # [B]
 
+        # 把 indices 拿到 CPU
+        u_cpu = user.cpu()
+        p_cpu = pos_item.cpu()
+        n_cpu = neg_item.cpu()
+
         # 2) EASE 分數（事先在外部算好，存在 self.ease_scores）
-        ease_pos = self.ease_scores[user, pos_item]  # [B]
-        ease_neg = self.ease_scores[user, neg_item]  # [B]
+        # ease_pos = self.ease_scores[user, pos_item]  # [B]
+        # ease_neg = self.ease_scores[user, neg_item]  # [B]
+        ease_pos = self.ease_scores[u_cpu, p_cpu].to(self.device)
+        ease_neg = self.ease_scores[u_cpu, n_cpu].to(self.device)
 
-        # 3) 以 α 加權融合
-        #    α 在 __init__ 裡宣告成 nn.Parameter(torch.tensor(0.5))
-        # pos_scores = pos_scores_kg + self.alpha * ease_pos
-        # neg_scores = neg_scores_kg + self.alpha * ease_neg
-
+        # 3) 以 加權融合
         pos_scores = pos_scores_kg * ease_pos
         neg_scores = neg_scores_kg * ease_neg
         # 4) 用 softplus 計算 BPR loss
@@ -366,11 +369,14 @@ class KGEASE(nn.Module):
 
         # 3) 從 self.ease_scores 取出對應子矩陣 → [B, I_batch]
         #    先按 user_indices 選行，再按 item_indices 選列
-        ease_cross = self.ease_scores[user_indices][:, item_indices]
+        ui_cpu = user_indices.cpu()
+        ii_cpu = item_indices.cpu()
+        # ease_scores = self.ease_scores[user_indices][:, item_indices]
+        ease_batch_cpu = self.ease_scores[ui_cpu][:, ii_cpu]
+        ease_batch = ease_batch_cpu.to(device, non_blocking=True)
 
-        # 4) 加權融合：KG + α * EASE
-        # return kg_scores + self.alpha * ease_cross
-        return kg_scores * ease_cross
+        # return kg_scores * ease_scores
+        return kg_scores * ease_batch
 
     def print_shapes(self):
         self.logger.info("########## Model HPs ##########")

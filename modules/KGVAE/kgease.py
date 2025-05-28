@@ -253,20 +253,29 @@ class KGEASE(nn.Module):
         pos_scores_kg = torch.sum(u_e * pos_e, dim=1)  # [B]
         neg_scores_kg = torch.sum(u_e * neg_e, dim=1)  # [B]
 
+        # mod_pos = torch.sigmoid( pos_scores_kg)
+        # mod_neg = torch.sigmoid( neg_scores_kg)
+
         # 把 indices 拿到 CPU
-        u_cpu = user.cpu()
-        p_cpu = pos_item.cpu()
-        n_cpu = neg_item.cpu()
+        # u_cpu = user.cpu()
+        # p_cpu = pos_item.cpu()
+        # n_cpu = neg_item.cpu()
 
         # 2) EASE 分數（事先在外部算好，存在 self.ease_scores）
         # ease_pos = self.ease_scores[user, pos_item]  # [B]
         # ease_neg = self.ease_scores[user, neg_item]  # [B]
-        ease_pos = self.ease_scores[u_cpu, p_cpu].to(self.device)
-        ease_neg = self.ease_scores[u_cpu, n_cpu].to(self.device)
+        # ease_pos = self.ease_scores[u_cpu, p_cpu].to(self.device)
+        # ease_neg = self.ease_scores[u_cpu, n_cpu].to(self.device)
 
         # 3) 以 加權融合
-        pos_scores = pos_scores_kg * ease_pos
-        neg_scores = neg_scores_kg * ease_neg
+        # pos_scores = pos_scores_kg * ease_pos
+        # neg_scores = neg_scores_kg * ease_neg
+        #
+        # pos_scores = ease_pos + self.alpha * mod_pos
+        # neg_scores = ease_neg + self.alpha * mod_neg
+        pos_scores = pos_scores_kg
+        neg_scores = neg_scores_kg
+
         # 4) 用 softplus 計算 BPR loss
         rec_loss = torch.sum(F.softplus(-(pos_scores - neg_scores)))
 
@@ -366,6 +375,7 @@ class KGEASE(nn.Module):
 
         # 2) 計算 KG 內積 → [B, I_batch]
         kg_scores = u_g_embeddings @ i_g_embeddings.t()
+        # mod = self.alpha * torch.sigmoid(kg_scores)
 
         # 3) 從 self.ease_scores 取出對應子矩陣 → [B, I_batch]
         #    先按 user_indices 選行，再按 item_indices 選列
@@ -374,9 +384,11 @@ class KGEASE(nn.Module):
         # ease_scores = self.ease_scores[user_indices][:, item_indices]
         ease_batch_cpu = self.ease_scores[ui_cpu][:, ii_cpu]
         ease_batch = ease_batch_cpu.to(device, non_blocking=True)
-
+        # final_score = ease_batch + mod
+        # return final_score
         # return kg_scores * ease_scores
         return kg_scores * ease_batch
+        # return ease_batch
 
     def print_shapes(self):
         self.logger.info("########## Model HPs ##########")

@@ -14,8 +14,9 @@ from modules.KGVAE.kgease import KGEASE
 from utils.evaluator import Evaluator
 from utils.helper import early_stopping, init_logger
 from utils.sampler import UniformSampler
-from modules.KGVAE.kgvae import build_user_item_matrix
+from modules.KGVAE.kgease import build_user_item_matrix
 from modules.KGVAE.ease import EASE
+from scipy.sparse import csr_matrix
 
 def neg_sampling(cf_pairs, train_user_dict, hard_neg_set):
     t1 = time()
@@ -88,7 +89,7 @@ if __name__ == '__main__':
         n_items = n_params['n_items']
 
         # 建立 user-item 交互矩陣 (用於 RecVAE 輸入)
-        user_item_matrix = build_user_item_matrix(train_cf, n_users, n_items, device)
+        user_item_matrix = build_user_item_matrix(train_cf, n_users, n_items, 'cpu')
 
         # 建立 KGEASE 模型
         model = KGEASE(n_params, args, graph, adj_mat).to(device)
@@ -108,16 +109,20 @@ if __name__ == '__main__':
         #
         # model.ease_scores = ease_scores
 
-        user_item_matrix_cpu = user_item_matrix.cpu()
+        R_sparse = csr_matrix(user_item_matrix)
         ease_model = EASE(reg=args.ease_reg).to('cpu')
-        ease_model.fit(user_item_matrix_cpu)
-        ease_scores_cpu = ease_model(user_item_matrix_cpu).cpu()  # [n_users, n_items] on CPU
-        print(">>> ease_scores.shape:", ease_scores_cpu.shape)
-        model.ease_scores = ease_scores_cpu
+        ease_model.fit(R_sparse)
+
+        R_dense = torch.tensor(R_sparse.toarray(), dtype=torch.float32)  # or test data
+        ease_scores = ease_model(R_dense)  # [n_users, n_items] on CPU
+        print(">>> ease_scores.shape:", ease_scores.shape)
+        model.ease_scores = ease_scores.half().to(device)
 
         # ─────────────────────────────────────
         # 第二階段：訓練 KGCL 部分（包括 CF 與 KG 損失）
-        optimizer_kg = torch.optim.Adam(model.parameters(), lr=args.lr)
+        rec_optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+        kg_optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+
         evaluator = Evaluator(args)
         test_interval = 1
         early_stop_step = 10
@@ -145,7 +150,7 @@ if __name__ == '__main__':
                         pos = set(user_dict['train_user_set'][u])
                         scores[list(pos)] = -1e9
 
-                        # 2) 取 60–80 百分位作為 semi-hard 的範圍
+                        # 2) 取 xx–xx 百分位作為 semi-hard 的範圍
                         vals = scores.cpu().numpy()
                         low, high = np.percentile(vals, [args.lower_bound, args.upper_bound])
                         mask = (vals >= low) & (vals <= high)
@@ -180,9 +185,11 @@ if __name__ == '__main__':
                 batch['aug_views'] = aug_views
 
                 batch_loss, batch_loss_dict = model(batch)
-                optimizer_kg.zero_grad()
+                rec_optimizer.zero_grad(set_to_none=True)
+                # optimizer_kg.zero_grad()
                 batch_loss.backward()
-                optimizer_kg.step()
+                rec_optimizer.step()
+                # optimizer_kg.step()
 
                 for k, v in batch_loss_dict.items():
                     add_loss_dict[k] += v / len(train_cf)
@@ -205,9 +212,9 @@ if __name__ == '__main__':
                 kg_batch_neg_tail = kg_batch_neg_tail.to(device)
                 kg_loss = model.calc_kg_loss_transE(kg_batch_head, kg_batch_relation,
                                                          kg_batch_pos_tail, kg_batch_neg_tail)
-                optimizer_kg.zero_grad()
+                kg_optimizer.zero_grad()
                 kg_loss.backward()
-                optimizer_kg.step()
+                kg_optimizer.step()
                 kg_total_loss += kg_loss.item()
             kg_time = time() - kg_start
 

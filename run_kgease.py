@@ -122,6 +122,10 @@ if __name__ == '__main__':
         # 第二階段：訓練 KGCL 部分（包括 CF 與 KG 損失）
         rec_optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
         kg_optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+        ## scheduler
+        rec_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            rec_optimizer, mode='max', factor=0.5, patience=3, verbose=True)
+        kg_scheduler = torch.optim.lr_scheduler.StepLR(kg_optimizer, step_size=10, gamma=0.9)
 
         evaluator = Evaluator(args)
         test_interval = 1
@@ -221,6 +225,8 @@ if __name__ == '__main__':
             logger.info("Epoch %04d | CF Time: %.1fs | KG Time: %.1fs | Mean KG Loss: %.4f",
                         epoch, cf_time, kg_time, kg_total_loss / n_kg_batch)
 
+            kg_scheduler.step()
+
             # ----- 評估 -----
             if epoch % test_interval == 0 and epoch >= 0:
                 model.eval()
@@ -235,6 +241,10 @@ if __name__ == '__main__':
                                  ret['recall'], ret['ndcg'], ret['precision'], ret['hit_ratio']])
                 logger.info("\n" + str(results))
 
+                ## update scheduler
+                recall_at_20 = ret['recall'][0]
+                rec_scheduler.step(recall_at_20)
+                ##
                 cur_best_pre_0, cur_stopping_step, should_stop = early_stopping(
                     ret['recall'][0], cur_best_pre_0, cur_stopping_step,
                     expected_order='acc', flag_step=early_stop_step)

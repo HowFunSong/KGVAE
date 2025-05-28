@@ -389,6 +389,8 @@ def parse_args_kgease():
 
     parser.add_argument("--hard_p", type=float, default=0.4,
                         help="Probability of drawing a negative sample from the hard negatives pool")
+    parser.add_argument("--align_weight", type=float, default=100,
+                        help="align kg_rec to ease scores")
 
     # ===== save model ===== #
     parser.add_argument("--save", action='store_true', default=False, help="save model or not")

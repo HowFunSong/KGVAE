@@ -138,6 +138,7 @@ class KGEASE(nn.Module):
 
         self.ease_scores = None
         self.alpha = nn.Parameter(torch.tensor(0.5))
+        self.align_weight = args_config.align_weight
 
     def _make_binorm_adj(self, mat):
         a = csr_matrix((self.n_users, self.n_users))
@@ -264,8 +265,8 @@ class KGEASE(nn.Module):
         # 2) EASE 分數（事先在外部算好，存在 self.ease_scores）
         # ease_pos = self.ease_scores[user, pos_item]  # [B]
         # ease_neg = self.ease_scores[user, neg_item]  # [B]
-        # ease_pos = self.ease_scores[u_cpu, p_cpu].to(self.device)
-        # ease_neg = self.ease_scores[u_cpu, n_cpu].to(self.device)
+        # ease_pos = self.ease_scores[u_cpu, p_cpu].to(self.device).float()
+        # ease_neg = self.ease_scores[u_cpu, n_cpu].to(self.device).float()
 
         # 3) 以 加權融合
         # pos_scores = pos_scores_kg * ease_pos
@@ -275,6 +276,9 @@ class KGEASE(nn.Module):
         # neg_scores = ease_neg + self.alpha * mod_neg
         pos_scores = pos_scores_kg
         neg_scores = neg_scores_kg
+        #
+        # align_loss = F.mse_loss(pos_scores_kg, ease_pos.detach()) + \
+        #              F.mse_loss(neg_scores_kg, ease_neg.detach())
 
         # 4) 用 softplus 計算 BPR loss
         rec_loss = torch.sum(F.softplus(-(pos_scores - neg_scores)))
@@ -295,9 +299,12 @@ class KGEASE(nn.Module):
         cl_loss = self.cl_weight * (user_cl_loss + item_cl_loss)
         loss = rec_loss + self.decay * reg_loss + cl_loss
 
+        # loss = rec_loss + self.decay * reg_loss + cl_loss + self.align_weight * align_loss
+
         loss_dict = {
             "rec_loss": rec_loss.item(),
             "cl_loss": cl_loss.item(),
+            # "align_loss" : align_loss.item()
         }
         return loss, loss_dict
 

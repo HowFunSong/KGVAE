@@ -8,6 +8,8 @@ from collections import defaultdict
 from tqdm import tqdm
 from prettytable import PrettyTable
 from logging import getLogger
+
+from utils.plotter import Plotter
 from utils.parser import parse_args_kgease
 from utils.data_loader import load_data
 from modules.KGVAE.kgease import KGEASE
@@ -82,6 +84,8 @@ if __name__ == '__main__':
 
         logger.info("PID: %d", os.getpid())
         logger.info("Experiment Description: %s", args.desc)
+
+        plotter = Plotter(out_dir="plots")
 
         # 讀取資料
         train_cf, test_cf, user_dict, n_params, graph, kg_dict, adj_mat = load_data(args)
@@ -234,6 +238,7 @@ if __name__ == '__main__':
                 logger.info("Mixture ratio for testing: %04f ", model.alpha)
                 with torch.no_grad():
                     ret = evaluator.test(model, user_dict, n_params)
+
                 test_time = time() - test_start
                 results = PrettyTable()
                 results.field_names = ["Epoch", "CF Time", "KG Time", "Recall", "NDCG", "Precision", "Hit Ratio"]
@@ -244,6 +249,30 @@ if __name__ == '__main__':
                 ## update scheduler
                 recall_at_20 = ret['recall'][0]
                 rec_scheduler.step(recall_at_20)
+
+                # ─── 調用 Plotter 畫 heatmap ───
+                # (1) 取出 ease_scores，已經存在 model.ease_scores 裡
+                ease_scores = model.ease_scores  # Tensor [n_users, n_items]
+                #(2) 取出 user / item embedding，用 generate() 拿
+                u_emb, i_emb = model.generate()  # Tensor [n_users, D], [n_items, D]
+                # (3) train_cf, test_cf 原本就是 numpy.ndarray [[u,i], ...]
+                train_pairs = train_cf
+                test_pairs = test_cf
+                # (4) user_dict 裡已有 'train_user_set' 跟 'test_user_set'
+                train_user_dict = user_dict['train_user_set']
+                test_user_dict = user_dict.get('test_user_set', {})
+
+                # 最後呼叫 plotter.record()，只要 recall 提升就存四張 heatmap
+                plotter.record(
+                        epoch,
+                        ease_scores,
+                        u_emb,
+                        i_emb,
+                        train_pairs,
+                        test_pairs,
+                        recall_at_20
+                 )
+
                 ##
                 cur_best_pre_0, cur_stopping_step, should_stop = early_stopping(
                     ret['recall'][0], cur_best_pre_0, cur_stopping_step,

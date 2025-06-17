@@ -386,7 +386,6 @@ def build_user_item_matrix(train_cf, n_users, n_items, device):
         mat[int(u), int(i)] = 1.0
     return torch.tensor(mat, device=device)
 
-
 class KGVAE(nn.Module):
     def __init__(self, data_config, args_config, graph, adj_mat, user_item_matrix):
         """

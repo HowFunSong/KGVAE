@@ -6,7 +6,7 @@ from torch_scatter import scatter_mean, scatter_sum, scatter_softmax
 from logging import getLogger
 from scipy.sparse import csr_matrix
 import scipy.sparse as sp
-from modules.KGVAE.vae import VAE
+
 
 def wasserstein_1d_torch(p: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
     """

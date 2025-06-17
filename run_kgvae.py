@@ -136,8 +136,10 @@ if __name__ == '__main__':
                 optimizer_kg.zero_grad()
                 optimizer_vae.zero_grad()
                 optimizer_alpha.zero_grad()
+
                 ## 反向傳播
                 batch_loss.backward()
+
                 ## 更新
                 optimizer_kg.step()
                 optimizer_vae.step()

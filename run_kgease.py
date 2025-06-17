@@ -85,7 +85,9 @@ if __name__ == '__main__':
         logger.info("PID: %d", os.getpid())
         logger.info("Experiment Description: %s", args.desc)
 
-        plotter = Plotter(out_dir="plots")
+        plot_dir = os.path.join("plots", args.model, args.dataset)
+        os.makedirs(plot_dir, exist_ok=True)
+        plotter = Plotter(out_dir=plot_dir)
 
         # 讀取資料
         train_cf, test_cf, user_dict, n_params, graph, kg_dict, adj_mat = load_data(args)
@@ -100,32 +102,34 @@ if __name__ == '__main__':
         model.print_shapes()
         print(">>> data_config['n_items'] :", n_items)
         print(">>> model.n_items          :", model.n_items)
+        print(">>> user_item_matrix.shape:", user_item_matrix.shape)
+        print(f">>> train set interactions：{train_cf.shape[0]}")
+        print(f">>> test set interactions： {test_cf.shape[0]}")
         # ────────────────────────────────────────────────────────────
         # 1) 初始化並 fit
-        # ease_model = EASE(reg=args.ease_reg).to(device)
-        #
-        # print(">>> user_item_matrix.shape:", user_item_matrix.shape)
-        # ease_model.fit(user_item_matrix)  # user_item_matrix shape = [n_users, n_items]
-        #
+        ease_model = EASE(reg=args.ease_reg).to("cpu")
+        ease_model.fit(user_item_matrix)  # user_item_matrix shape = [n_users, n_items]
+
         # # 2) 一次性算出所有 user×item 的分數
-        # ease_scores = ease_model(user_item_matrix)  # [n_users, n_items]
-        # print(">>> ease_scores.shape:", ease_scores.shape)
-        #
-        # model.ease_scores = ease_scores
-
-        R_sparse = csr_matrix(user_item_matrix)
-        ease_model = EASE(reg=args.ease_reg).to('cpu')
-        ease_model.fit(R_sparse)
-
-        R_dense = torch.tensor(R_sparse.toarray(), dtype=torch.float32)  # or test data
-        ease_scores = ease_model(R_dense)  # [n_users, n_items] on CPU
+        ease_scores = ease_model(user_item_matrix)  # [n_users, n_items]
         print(">>> ease_scores.shape:", ease_scores.shape)
-        model.ease_scores = ease_scores.half().to(device)
+
+        model.ease_scores = ease_scores
+
+        # R_sparse = csr_matrix(user_item_matrix)
+        # ease_model = EASE(reg=args.ease_reg).to('cpu')
+        # ease_model.fit(R_sparse)
+        #
+        # R_dense = torch.tensor(R_sparse.toarray(), dtype=torch.float32)  # or test data
+        # ease_scores = ease_model(R_dense)  # [n_users, n_items] on CPU
+        # print(">>> ease_scores.shape:", ease_scores.shape)
+        # model.ease_scores = ease_scores.half().to(device)
 
         # ─────────────────────────────────────
         # 第二階段：訓練 KGCL 部分（包括 CF 與 KG 損失）
         rec_optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
         kg_optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+
         ## scheduler
         rec_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             rec_optimizer, mode='max', factor=0.5, patience=3, verbose=True)

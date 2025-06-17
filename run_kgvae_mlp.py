@@ -3,6 +3,8 @@ import os
 import random
 import numpy as np
 import torch
+import torch.nn.functional as F
+from utils.plotter import Plotter
 from time import time
 from collections import defaultdict
 from tqdm import tqdm
@@ -62,6 +64,10 @@ if __name__ == '__main__':
 
         logger.info("PID: %d", os.getpid())
         logger.info("Experiment Description: %s", args.desc)
+
+        plot_dir = os.path.join("plots", args.model, args.dataset)
+        os.makedirs(plot_dir, exist_ok=True)
+        plotter = Plotter(out_dir=plot_dir)
 
         # 讀取資料
         train_cf, test_cf, user_dict, n_params, graph, kg_dict, adj_mat = load_data(args)
@@ -197,6 +203,22 @@ if __name__ == '__main__':
                 results.add_row([epoch, f"{cf_time:.1f}", f"{kg_time:.1f}",
                                  ret['recall'], ret['ndcg'], ret['precision'], ret['hit_ratio']])
                 logger.info("\n" + str(results))
+                #-------
+                recall_at_20 = ret['recall'][0]
+                u_emb, i_emb = model.generate()
+                p_u = F.normalize(model.proj_mlp(u_emb), dim=1) * model.alpha
+                mlp_scores = p_u @ i_emb.t()
+                train_pairs = train_cf
+                test_pairs = test_cf
+                plotter.record_mlp(
+                    epoch,
+                    mlp_scores,
+                    u_emb,
+                    i_emb,
+                    train_pairs,
+                    test_pairs,
+                    recall_at_20
+                )
 
                 cur_best_pre_0, cur_stopping_step, should_stop = early_stopping(
                     ret['recall'][0], cur_best_pre_0, cur_stopping_step,

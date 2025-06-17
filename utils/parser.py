@@ -112,7 +112,7 @@ def parse_args_kgvae_hard():
     return parser.parse_args()
 
 def parse_args_kgvae_mlp():
-    parser = argparse.ArgumentParser(description="KGVAE")
+    parser = argparse.ArgumentParser(description="KGVAE_MLP")
     # ===== log ===== #
     parser.add_argument('--desc', type=str, default="", help='EXP description')
     parser.add_argument('--log', action='store_true', default=False, help='log in file or not')
@@ -122,9 +122,9 @@ def parse_args_kgvae_mlp():
     parser.add_argument(
         "--data_path", nargs="?", default="data/", help="Input data path."
     )
-    parser.add_argument('--model', default="KGCL", help='use MAE or not')
+    parser.add_argument('--model', default="KGVAE_MLP", help='use MAE or not')
     # ===== train vae===== #
-    parser.add_argument('--vae_epochs', type=int, default=1, help='number of vae pretrained epochs')
+    parser.add_argument('--vae_epochs', type=int, default=50, help='number of vae pretrained epochs')
     parser.add_argument("--n_enc_epochs", type=int, default=3, help="Number of encoder-only update steps per RecVAE pretraining epoch")
     parser.add_argument("--n_dec_epochs", type=int, default=1, help="Number of decoder-only update steps per RecVAE pretraining epoch")
 

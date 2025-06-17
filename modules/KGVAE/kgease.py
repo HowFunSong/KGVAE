@@ -254,26 +254,6 @@ class KGEASE(nn.Module):
         pos_scores_kg = torch.sum(u_e * pos_e, dim=1)  # [B]
         neg_scores_kg = torch.sum(u_e * neg_e, dim=1)  # [B]
 
-        # mod_pos = torch.sigmoid( pos_scores_kg)
-        # mod_neg = torch.sigmoid( neg_scores_kg)
-
-        # 把 indices 拿到 CPU
-        # u_cpu = user.cpu()
-        # p_cpu = pos_item.cpu()
-        # n_cpu = neg_item.cpu()
-
-        # 2) EASE 分數（事先在外部算好，存在 self.ease_scores）
-        # ease_pos = self.ease_scores[user, pos_item]  # [B]
-        # ease_neg = self.ease_scores[user, neg_item]  # [B]
-        # ease_pos = self.ease_scores[u_cpu, p_cpu].to(self.device).float()
-        # ease_neg = self.ease_scores[u_cpu, n_cpu].to(self.device).float()
-
-        # 3) 以 加權融合
-        # pos_scores = pos_scores_kg * ease_pos
-        # neg_scores = neg_scores_kg * ease_neg
-        #
-        # pos_scores = ease_pos + self.alpha * mod_pos
-        # neg_scores = ease_neg + self.alpha * mod_neg
         pos_scores = pos_scores_kg
         neg_scores = neg_scores_kg
         #
@@ -296,14 +276,15 @@ class KGEASE(nn.Module):
         user_cl_loss = self.infonce_overall(users_v1_ro[user], users_v2_ro[user], users_v2_ro)
         item_cl_loss = self.infonce_overall(items_v1_ro[pos_item], items_v2_ro[pos_item], items_v2_ro)
 
-        cl_loss = self.cl_weight * (user_cl_loss + item_cl_loss)
-        loss = rec_loss + self.decay * reg_loss + cl_loss
+        # cl_loss = self.cl_weight * (user_cl_loss + item_cl_loss)
+        # loss = rec_loss + self.decay * reg_loss + cl_loss
+        loss = rec_loss + self.decay * reg_loss
 
         # loss = rec_loss + self.decay * reg_loss + cl_loss + self.align_weight * align_loss
 
         loss_dict = {
             "rec_loss": rec_loss.item(),
-            "cl_loss": cl_loss.item(),
+            # "cl_loss": cl_loss.item(),
             # "align_loss" : align_loss.item()
         }
         return loss, loss_dict

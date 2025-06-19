@@ -311,7 +311,6 @@ class KGEASE(nn.Module):
         """
         h:      (kg_batch_size)
         r:      (kg_batch_size)
-        pos_t:  (kg_batch_size)
         neg_t:  (kg_batch_size)
         """
         entity_emb = self.all_embed[self.n_users:, :]

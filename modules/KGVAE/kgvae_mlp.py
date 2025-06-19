@@ -494,8 +494,8 @@ class KGVAEMLP(nn.Module):
         """
         self.logger.info("alpha: %s", self.alpha)
 
-        p_u = F.normalize(self.proj_mlp(u_g_embeddings), dim=1)  # [n_users, D]
-        combined_u = u_g_embeddings + p_u * self.alpha
+        p_u = F.normalize(self.proj_mlp(u_g_embeddings), dim=1) * self.alpha # [n_users, D]
+        combined_u = u_g_embeddings + p_u
         scores = combined_u @ i_g_embeddings.t()
 
         return scores

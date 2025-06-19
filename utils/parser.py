@@ -7,7 +7,7 @@ def parse_args_kgvae():
     parser.add_argument('--log', action='store_true', default=False, help='log in file or not')
     parser.add_argument('--log_fn', type=str, default=None, help='log file_name')
     # ===== dataset ===== #
-    parser.add_argument("--dataset", nargs="?", default="movielens-100k", help="Choose a dataset:[last-fm, movielens-20m]")
+    parser.add_argument("--dataset", nargs="?", default="movielens-100k-add", help="Choose a dataset:[last-fm, movielens-20m]")
     parser.add_argument(
         "--data_path", nargs="?", default="data/", help="Input data path."
     )
@@ -62,7 +62,7 @@ def parse_args_kgvae_hard():
     parser.add_argument('--log', action='store_true', default=False, help='log in file or not')
     parser.add_argument('--log_fn', type=str, default=None, help='log file_name')
     # ===== dataset ===== #
-    parser.add_argument("--dataset", nargs="?", default="movielens-100k", help="Choose a dataset:[last-fm, movielens-20m]")
+    parser.add_argument("--dataset", nargs="?", default="movielens-100k-add", help="Choose a dataset:[last-fm, movielens-20m]")
     parser.add_argument(
         "--data_path", nargs="?", default="data/", help="Input data path."
     )
@@ -118,7 +118,7 @@ def parse_args_kgvae_mlp():
     parser.add_argument('--log', action='store_true', default=False, help='log in file or not')
     parser.add_argument('--log_fn', type=str, default=None, help='log file_name')
     # ===== dataset ===== #
-    parser.add_argument("--dataset", nargs="?", default="movielens-100k", help="Choose a dataset:[last-fm, movielens-20m]")
+    parser.add_argument("--dataset", nargs="?", default="movielens-100k-add", help="Choose a dataset:[last-fm, movielens-20m]")
     parser.add_argument(
         "--data_path", nargs="?", default="data/", help="Input data path."
     )
@@ -175,7 +175,7 @@ def parse_args_kgvae_dec():
     parser.add_argument('--log', action='store_true', default=False, help='log in file or not')
     parser.add_argument('--log_fn', type=str, default=None, help='log file_name')
     # ===== dataset ===== #
-    parser.add_argument("--dataset", nargs="?", default="movielens-100k", help="Choose a dataset:[last-fm, movielens-20m]")
+    parser.add_argument("--dataset", nargs="?", default="movielens-100k-add", help="Choose a dataset:[last-fm, movielens-20m]")
     parser.add_argument(
         "--data_path", nargs="?", default="data/", help="Input data path."
     )
@@ -232,7 +232,7 @@ def parse_args_kgvae_aug():
     parser.add_argument('--log', action='store_true', default=False, help='log in file or not')
     parser.add_argument('--log_fn', type=str, default=None, help='log file_name')
     # ===== dataset ===== #
-    parser.add_argument("--dataset", nargs="?", default="movielens-100k", help="Choose a dataset:[last-fm, movielens-20m]")
+    parser.add_argument("--dataset", nargs="?", default="movielens-100k-add", help="Choose a dataset:[last-fm, movielens-20m]")
     parser.add_argument(
         "--data_path", nargs="?", default="data/", help="Input data path."
     )
@@ -288,7 +288,7 @@ def parse_args_kgvae_enc():
     parser.add_argument('--log', action='store_true', default=False, help='log in file or not')
     parser.add_argument('--log_fn', type=str, default=None, help='log file_name')
     # ===== dataset ===== #
-    parser.add_argument("--dataset", nargs="?", default="movielens-100k", help="Choose a dataset:[last-fm, movielens-20m]")
+    parser.add_argument("--dataset", nargs="?", default="movielens-100k-add", help="Choose a dataset:[last-fm, movielens-20m]")
     parser.add_argument(
         "--data_path", nargs="?", default="data/", help="Input data path."
     )
@@ -343,7 +343,7 @@ def parse_args_kgease():
     parser.add_argument('--log', action='store_true', default=False, help='log in file or not')
     parser.add_argument('--log_fn', type=str, default=None, help='log file_name')
     # ===== dataset ===== #
-    parser.add_argument("--dataset", nargs="?", default="movielens-100k", help="Choose a dataset:[last-fm, movielens-20m]")
+    parser.add_argument("--dataset", nargs="?", default="movielens-100k-add", help="Choose a dataset:[last-fm, movielens-20m]")
     parser.add_argument(
         "--data_path", nargs="?", default="data/", help="Input data path."
     )
@@ -408,8 +408,8 @@ def parse_args_kgelsa():
     parser.add_argument('--log_fn',  type=str,   default=None,   help='log file_name')
 
     # ===== dataset ===== #
-    parser.add_argument("--dataset",   nargs="?", default="movielens-100k",
-                        help="Choose a dataset: [last-fm, movielens-20m, movielens-100k]")
+    parser.add_argument("--dataset",   nargs="?", default="movielens-100k-add",
+                        help="Choose a dataset: [last-fm, movielens-20m, movielens-100k-add]")
     parser.add_argument("--data_path", nargs="?", default="data/", help="Input data path.")
     parser.add_argument('--model',     default="KGELSA", help='use KGCL or not')
 
